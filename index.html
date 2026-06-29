@@ -448,7 +448,7 @@
 
       <div class="form-sec">
         <h4>القيمة والحالة</h4>
-        <div class="grid2">
+        <div class="grid2" id="valueFieldsWrap">
           <div class="field"><label>القيمة التقديرية</label><input id="f-value" type="number" inputmode="numeric" placeholder="0"></div>
           <div class="field"><label>العملة</label><select id="f-currency"><option>EGP</option><option>SAR</option><option>USD</option></select></div>
         </div>
@@ -612,8 +612,15 @@
   let db=null, auth=null, ready=false;
   let currentUser=null, currentRole=null, currentUserName=null;
   const ROLES={super_admin:"Super Admin",admin:"Admin",sales:"Sales",marketing:"Marketing",viewer:"Viewer"};
-  const canWrite=()=>currentRole==="super_admin"||currentRole==="admin"||currentRole==="sales";
+  const isLimited=()=>currentRole==="sales"||currentRole==="marketing";
+  const canWrite=()=>currentRole==="super_admin"||currentRole==="admin"||currentRole==="sales"||currentRole==="marketing";
+  const canAddNotes=()=>currentRole==="super_admin"||currentRole==="admin"||currentRole==="sales";
   const canDelete=()=>currentRole==="super_admin"||currentRole==="admin";
+  const canEdit=()=>currentRole==="super_admin"||currentRole==="admin";
+  const canBackup=()=>currentRole==="super_admin"||currentRole==="admin";
+  const canExport=()=>currentRole==="super_admin"||currentRole==="admin";
+  const canSeeValue=()=>currentRole==="super_admin"||currentRole==="admin";
+  const canSeeReferral=()=>currentRole==="super_admin"||currentRole==="admin";
   const isAdmin=()=>currentRole==="super_admin"||currentRole==="admin";
   const isSuperAdmin=()=>currentRole==="super_admin";
 
@@ -679,9 +686,12 @@
     superOnly.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=isSuperAdmin()?"":"none";});
     // super-admin badge
     const chip=$("#userChip"); if(isSuperAdmin()&&chip)chip.style.outline="2px solid var(--clay)";
-    // write-only elements
-    const writeOnly=["addFab","importBtn","backupBtn","restoreBtn","exportBtn"];
+    // write-only elements (import: sales/marketing can upload only)
+    const writeOnly=["addFab","importBtn"];
     writeOnly.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=canWrite()?"":"none";});
+    // backup/export: admin+ only
+    const adminTools=["backupBtn","restoreBtn","exportBtn"];
+    adminTools.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=canBackup()?"":"none";});
     // marketing: only show report tab
     if(currentRole==="marketing"){
       $$('nav.tabs button[data-tab="dash"]').forEach(b=>b.style.display="none");
@@ -693,6 +703,8 @@
   function startListeners(){
     db.collection("leads").onSnapshot(snap=>{
       leads=snap.docs.map(d=>d.data());
+      // sales & marketing cannot see referral leads
+      if(!canSeeReferral()) leads=leads.filter(l=>l.source!=="referral");
       ready=true; $("#loadingState").style.display="none";
       renderAll();
       if($("#detailOverlay").classList.contains("show")&&currentDetailId)renderDetail();
@@ -807,8 +819,11 @@
   function renderDash(){
     const active=leads.filter(l=>isActive(l));
     const won=leads.filter(l=>l.status==="won");
-    const closed=leads.filter(l=>l.status==="won"||l.status==="lost");
-    const conv=closed.length?Math.round(won.length/closed.length*100):0;
+    // conversion rate: exclude referral leads for limited roles
+    const convLeads=canSeeReferral()?leads:leads.filter(l=>l.source!=="referral");
+    const closed=convLeads.filter(l=>l.status==="won"||l.status==="lost");
+    const wonConv=convLeads.filter(l=>l.status==="won");
+    const conv=closed.length?Math.round(wonConv.length/closed.length*100):0;
     const due=leads.filter(l=>{const d=dueInfo(l.nextFollowUp);return d&&(d.cls==="due-over"||d.cls==="due-today");}).length;
     const dueToday=leads.filter(l=>{const d=dueInfo(l.nextFollowUp);return d&&d.cls==="due-today";}).length;
     const now=new Date(), monthStart=new Date(now.getFullYear(),now.getMonth(),1).getTime();
@@ -833,7 +848,7 @@
         <div class="prio-rank" style="background:${heat(x.p.sc)}">${i+1}</div>
         <div class="prio-main"><div class="prio-name">${esc(l.name)}</div>
           <div class="prio-reason"><b>${x.p.rs[0]||""}</b>${x.p.rs[1]?" · "+x.p.rs[1]:""} · ${esc(l.owner||"بدون مسؤول")}</div></div>
-        <div class="prio-val num">${l.value?fmt(l.value)+" "+l.currency:""}</div></div>`;
+        <div class="prio-val num">${canSeeValue()&&l.value?fmt(l.value)+" "+l.currency:""}</div></div>`;
     }).join(""):'<p class="muted" style="padding:12px 0">مفيش عملاء محتاجين متابعة عاجلة دلوقتي. ✦</p>';
 
     const maxC=Math.max(1,...PIPELINE.map(k=>leads.filter(l=>l.status===k).length));
@@ -855,7 +870,7 @@
       if(staleListEl){
         staleListEl.innerHTML=staleLeads.map(function(l){
           const days=Math.floor((Date.now()-(lastTs(l)||l.createdAt))/864e5);
-          const val=l.value?(fmt(l.value)+" "+l.currency):"";
+          const val=canSeeValue()&&l.value?(fmt(l.value)+" "+l.currency):"";
           return '<div class="prio-item" onclick="openDetail(\''+l.id+'\')">'
             +'<div class="prio-rank" style="background:var(--gold)">'+days+'ي</div>'
             +'<div class="prio-main"><div class="prio-name">'+esc(l.name)+'</div>'
@@ -925,7 +940,7 @@
           ${proj?`<span class="tag">${esc(proj)}</span>`:""}${l.area?`<span class="tag">${esc(l.area)} ${esc(l.areaUnit||"م²")}</span>`:""}
           ${(l.services||[]).slice(0,2).map(s=>`<span class="tag">${esc(s)}</span>`).join("")}${(l.services||[]).length>2?`<span class="tag">+${l.services.length-2}</span>`:""}</div>
         <div class="l-foot"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span class="l-val num">${l.value?fmt(l.value)+" "+l.currency:"—"}</span>
+          <span class="l-val num">${canSeeValue()?(l.value?fmt(l.value)+" "+l.currency:"—"):""}</span>
           ${l.owner?`<span class="muted" style="font-size:12.5px">👤 ${esc(l.owner)}</span>`:""}
           ${l.driveLink?`<span class="muted" style="font-size:12.5px">🔗</span>`:""}
           ${(l.notes||[]).length?`<span class="muted" style="font-size:12.5px">💬 ${l.notes.length}</span>`:""}</div>
@@ -960,7 +975,7 @@
     $$("#f-quality-pills .pill").forEach(p=>p.onclick=()=>setQuality(p.dataset.q===active?"":p.dataset.q));}
 
   window.openForm=function(id){
-    if(!canWrite()){toast("مش عندك صلاحية التعديل");return;}
+    if(!canEdit()){toast("التعديل للـ Admin بس");return;}
     const ed=!!id, l=ed?leads.find(x=>x.id===id):{};
     $("#formTitle").textContent=ed?"تعديل بيانات العميل":"عميل محتمل جديد";
     $("#f-id").value=ed?id:"";
@@ -976,6 +991,7 @@
     renderCats(l.projectCategory||"",l.projectSubtype||"");
     $("#f-area").value=l.area||"";if($("#f-area-unit"))$("#f-area-unit").value=l.areaUnit||"م²";$("#f-location").value=l.location||"";$("#f-district").value=l.district||"";$("#f-compound").value=l.compound||"";
     $("#f-value").value=l.value||"";$("#f-currency").value=l.currency||"EGP";
+    const vw=document.getElementById("valueFieldsWrap");if(vw)vw.style.display=canSeeValue()?"":"none";
     $("#f-followup").value=l.nextFollowUp||"";
     $("#f-quotestart").value=l.quoteStartDate||"";$("#f-quotesubmit").value=l.quoteSubmitDate||"";
     $("#f-drive").value=l.driveLink||"";$("#f-pain").value=l.painPoints||"";$("#f-plus").value=l.ourPlus||"";
@@ -1064,7 +1080,7 @@
       <div class="info-grid">
         ${info("المشروع",proj)}${info("المساحة",l.area?(l.area+" "+(l.areaUnit||"م²")):"")}
         ${info("المكان",[l.location,l.district].filter(Boolean).join(" / "))}${info("الكمباوند",l.compound)}
-        ${info("القيمة",l.value?fmt(l.value)+" "+l.currency:"")}${info("المسؤول",l.owner)}
+        ${canSeeValue()?info("القيمة",l.value?fmt(l.value)+" "+l.currency:""):""}${info("المسؤول",l.owner)}
         ${l.status==="cancelled"&&l.cancelReason?`<div class="info-box" style="grid-column:1/-1;border-color:var(--rose)"><div class="ib-l" style="color:var(--rose)">سبب الإلغاء</div><div class="ib-v">${esc(l.cancelReason)}</div></div>`:""}
         ${l.status==="lost"&&l.lostReason?`<div class="info-box" style="grid-column:1/-1;border-color:var(--rose)"><div class="ib-l" style="color:var(--rose)">سبب الخسارة</div><div class="ib-v">${esc(l.lostReason)}</div></div>`:""}
         ${info("تاريخ الإرسال / التسجيل",recv)}
@@ -1079,11 +1095,11 @@
       </div>
       ${l.painPoints?`<div class="info-box" style="margin-bottom:10px"><div class="ib-l" style="color:var(--rose)">⚠ Pain Points</div><div style="font-size:13.5px;white-space:pre-wrap">${esc(l.painPoints)}</div></div>`:""}
       ${l.ourPlus?`<div class="info-box" style="margin-bottom:14px"><div class="ib-l" style="color:var(--sage)">✦ ميزتنا</div><div style="font-size:13.5px;white-space:pre-wrap">${esc(l.ourPlus)}</div></div>`:""}
-      ${canWrite()?`<div class="seg"><button class="${detailTab==='timeline'?'on':''}" data-dt="timeline">سجل التواصل (${(l.notes||[]).length})</button><button class="${detailTab==='log'?'on':''}" data-dt="log">＋ تسجيل مكالمة / ملاحظة</button></div>`
+      ${canAddNotes()?`<div class="seg"><button class="${detailTab==='timeline'?'on':''}" data-dt="timeline">سجل التواصل (${(l.notes||[]).length})</button><button class="${detailTab==='log'?'on':''}" data-dt="log">＋ تسجيل مكالمة / ملاحظة</button></div>`
         :`<div style="font-weight:700;font-size:13px;margin-bottom:8px">سجل التواصل (${(l.notes||[]).length})</div>`}
       <div id="detailPane"></div>
       ${canWrite()?`<div style="display:flex;gap:10px;margin-top:18px;border-top:1px solid var(--line-soft);padding-top:14px">
-        <button class="btn btn-ghost btn-sm" onclick="openEdit('${l.id}')" style="flex:1">✎ تعديل</button>
+      ${canEdit()?`<button class="btn btn-ghost btn-sm" onclick="openEdit('${l.id}')" style="flex:1">✎ تعديل</button>`:""}
         <select class="filter" id="quickStatus" style="flex:1">${STATUSES.map(st=>`<option value="${st.k}" ${st.k===l.status?"selected":""}>تغيير لـ: ${st.t}</option>`).join("")}</select>
       </div>
       <div id="quickReasonWrap" style="display:none;margin-top:8px;background:var(--ivory);border:1px solid var(--line);border-radius:11px;padding:10px">
@@ -1101,7 +1117,7 @@
         <button class="btn btn-primary btn-sm" id="quickWonSave" style="width:100%;background:var(--sage)">تأكيد العقد ✓</button>
       </div>
       <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="openMerge('${l.id}')" style="width:100%;color:var(--ink-soft)">🔀 دمج عميل مكرّر مع ده</button></div>`:""}`;
-    if(canWrite()){
+    if(canAddNotes()){
       const CANCEL_OPTS=["مذكور في الملاحظات","متابعة طويلة دون رد","الموقع الجغرافي غير مناسب","المشروع غير مناسب للشركة","الميزانية غير مناسبة","العميل اختار جهة أخرى","أخرى"];
       const LOST_OPTS=["السعر أعلى من التوقعات","اختار منافس آخر","العميل أجّل القرار","تغيّر متطلبات العميل","بطء في الرد من جانبنا","العميل لم يرد نهائيًا","أخرى"];
       const qr=$("#quickReasonWrap"), qrs=$("#quickReasonSel"), qrl=$("#quickReasonLabel");
@@ -1139,7 +1155,7 @@
       l.status=newStatus;
       if(TERMINAL.includes(newStatus)) l.nextFollowUp=null;
       await putLead(l);renderDetail();renderLeadsAndDash();toast("تم تحديث الحالة");});}
-    if(!canWrite())detailTab="timeline";
+    if(!canAddNotes())detailTab="timeline";
     $$("#detailBody .seg button").forEach(b=>b.onclick=()=>{detailTab=b.dataset.dt;renderDetail();});
     renderPane(l,notes);
   }
@@ -1474,9 +1490,9 @@
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download="plinth-leads-"+todayStr()+".csv";a.click();toast("تم التصدير");};
   $("#printBtn").onclick=()=>window.print();
   $("#backupBtn").onclick=backup;
-  $("#restoreBtn").onclick=()=>$("#restoreInput").click();
-  $("#restoreInput").onchange=e=>{if(e.target.files[0]){restore(e.target.files[0]);e.target.value="";}};
-  // report date range controls
+  $("#restoreBtn").onclick=()=>{if(!canBackup()){toast("الاسترجاع للـ Admin بس");return;}$("#restoreInput").click();};
+  $("#restoreInput").onchange=e=>{if(!canBackup()){toast("الاسترجاع للـ Admin بس");return;}if(e.target.files[0]){restore(e.target.files[0]);e.target.value="";}};
+  // sales/marketing can only import via Excel (import button already visible via writeOnly)  // report date range controls
   $("#rptApply").onclick=()=>{rptFrom=$("#rptFrom").value||null;rptTo=$("#rptTo").value||null;renderReport();};
   $("#rptClear").onclick=()=>{rptFrom=null;rptTo=null;$("#rptFrom").value="";$("#rptTo").value="";$("#rptMonth").value="";renderReport();};
   $("#rptMonth").onchange=function(){const v=this.value;if(!v){rptFrom=null;rptTo=null;}else{rptFrom=v+"-01";const[y,m]=v.split("-").map(Number);rptTo=new Date(y,m,0).toISOString().slice(0,10);}renderReport();};
