@@ -687,8 +687,13 @@
     // super-admin badge
     const chip=$("#userChip"); if(isSuperAdmin()&&chip)chip.style.outline="2px solid var(--clay)";
     // write-only elements (import: sales/marketing can upload only)
-    const writeOnly=["addFab","importBtn"];
-    writeOnly.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=canWrite()?"":"none";});
+    const canImport=()=>currentRole==="super_admin"||currentRole==="admin"||currentRole==="sales"||currentRole==="marketing";
+    // addFab (manual add): sales+ only, not marketing
+    const fabEl=document.getElementById("addFab");
+    if(fabEl)fabEl.style.display=(canWrite()&&currentRole!=="marketing")?"":"none";
+    // importBtn: sales + marketing can upload Excel
+    const impEl=document.getElementById("importBtn");
+    if(impEl)impEl.style.display=canImport()?"":"none";
     // backup/export: admin+ only
     const adminTools=["backupBtn","restoreBtn","exportBtn"];
     adminTools.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=canBackup()?"":"none";});
@@ -770,7 +775,10 @@
   function lastTs(l){const n=(l.notes||[]);return n.length?Math.max(...n.map(x=>x.ts)):0;}
   function firstTs(l){const n=(l.notes||[]);return n.length?Math.min(...n.map(x=>x.ts)):0;}
   function normVal(l){const v=Number(l.value)||0;return v*(l.currency==="USD"?50:l.currency==="SAR"?13:1);}
-  function totalsByCurrency(fn){const t={EGP:0,SAR:0,USD:0};leads.filter(fn).forEach(l=>t[l.currency]=(t[l.currency]||0)+(Number(l.value)||0));
+  function totalsByCurrency(fn){
+    const visibleLeads=canSeeReferral()?leads:leads.filter(l=>l.source!=="referral");
+    const t={EGP:0,SAR:0,USD:0};
+    visibleLeads.filter(fn).forEach(l=>t[l.currency]=(t[l.currency]||0)+(Number(l.value)||0));
     return Object.entries(t).filter(([,v])=>v>0).map(([c,v])=>fmt(v)+" "+c).join(" · ")||"—";}
   function campLabel(id){if(!id)return"";const c=campaigns.find(x=>x.id===id);return c?`[${c.platform}] #${c.id}${c.name?" — "+c.name:""}`:"#"+id;}
   function srcLabel(l){const s=srcById(l.source);if(!s)return l.source||"—";return s.camp&&l.campaignId?s.t+" · "+campLabel(l.campaignId):s.t;}
@@ -818,11 +826,11 @@
   // ---- dashboard ----
   function renderDash(){
     const active=leads.filter(l=>isActive(l));
-    const won=leads.filter(l=>l.status==="won");
-    // conversion rate: exclude referral leads for limited roles
+    // exclude referral for limited roles in all counts
     const convLeads=canSeeReferral()?leads:leads.filter(l=>l.source!=="referral");
+    const won=convLeads.filter(l=>l.status==="won");
     const closed=convLeads.filter(l=>l.status==="won"||l.status==="lost");
-    const wonConv=convLeads.filter(l=>l.status==="won");
+    const wonConv=won;
     const conv=closed.length?Math.round(wonConv.length/closed.length*100):0;
     const due=leads.filter(l=>{const d=dueInfo(l.nextFollowUp);return d&&(d.cls==="due-over"||d.cls==="due-today");}).length;
     const dueToday=leads.filter(l=>{const d=dueInfo(l.nextFollowUp);return d&&d.cls==="due-today";}).length;
@@ -1301,8 +1309,9 @@
     return true;
   }
   function renderReport(){
-    const scope=leads.filter(filterByDate);
-    const label=rptFrom||rptTo?`الفترة: ${rptFrom||"…"} → ${rptTo||"…"} · ${scope.length} عميل`:"كل الفترات · "+leads.length+" عميل";
+    const allVisible=canSeeReferral()?leads:leads.filter(l=>l.source!=="referral");
+    const scope=allVisible.filter(filterByDate);
+    const label=rptFrom||rptTo?`الفترة: ${rptFrom||"…"} → ${rptTo||"…"} · ${scope.length} عميل`:"كل الفترات · "+allVisible.length+" عميل";
     const rptLbl=$("#rptLabel");if(rptLbl)rptLbl.textContent=label;
     const now=new Date().toLocaleDateString("ar-EG",{day:"numeric",month:"long",year:"numeric"});
     const won=scope.filter(l=>l.status==="won"),lost=scope.filter(l=>l.status==="lost"),closed=won.length+lost.length;
