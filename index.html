@@ -697,12 +697,8 @@
     // backup/export: admin+ only
     const adminTools=["backupBtn","restoreBtn","exportBtn"];
     adminTools.forEach(id=>{const el=document.getElementById(id);if(el)el.style.display=canBackup()?"":"none";});
-    // marketing: only show report tab
-    if(currentRole==="marketing"){
-      $$('nav.tabs button[data-tab="dash"]').forEach(b=>b.style.display="none");
-      $$('nav.tabs button[data-tab="leads"]').forEach(b=>b.style.display="none");
-      $$('nav.tabs button[data-tab="report"]')[0]?.click();
-    }
+    // marketing: can see all tabs but with restricted data
+    // (no longer redirect to report-only)
   }
   window.doLogout=async function(){ try{await auth.signOut();}catch(e){} };
   function startListeners(){
@@ -839,8 +835,8 @@
     const staleCount=leads.filter(l=>{if(!isActive(l))return false;const lt=lastTs(l)||l.createdAt;return Math.floor((Date.now()-lt)/864e5)>7;}).length;
     $("#kpiGrid").innerHTML=`
       <div class="kpi accent" style="cursor:pointer" onclick="applyQuick(null)"><div class="lbl">إجمالي العملاء</div><div class="val num">${leads.length}</div><div class="sub muted">${active.length} نشط</div></div>
-      <div class="kpi" style="cursor:pointer" onclick="applyQuick('active')"><div class="lbl">Pipeline النشطة ›</div><div class="val num" style="font-size:17px">${totalsByCurrency(l=>isActive(l))}</div></div>
-      <div class="kpi" style="cursor:pointer" onclick="applyQuick('won')"><div class="lbl">مكسوب ›</div><div class="val num" style="color:var(--sage)">${won.length}</div><div class="sub muted">${totalsByCurrency(l=>l.status==='won')}</div></div>
+      <div class="kpi" style="cursor:pointer" onclick="applyQuick('active')"><div class="lbl">Pipeline النشطة ›</div><div class="val num" style="font-size:17px">${canSeeValue()?totalsByCurrency(l=>isActive(l)):active.length+" عميل"}</div></div>
+      <div class="kpi" style="cursor:pointer" onclick="applyQuick('won')"><div class="lbl">مكسوب ›</div><div class="val num" style="color:var(--sage)">${won.length}</div><div class="sub muted">${canSeeValue()?totalsByCurrency(l=>l.status==='won'):""}</div></div>
       <div class="kpi"><div class="lbl">نسبة التحويل</div><div class="val num">${conv}<small>%</small></div><div class="sub muted">${won.length}/${closed.length}</div></div>
       <div class="kpi" style="cursor:pointer" onclick="applyQuick('due')"><div class="lbl">متابعات مستحقة ›</div><div class="val num" style="color:${due?'var(--rose)':'var(--ink)'}">${due}</div><div class="sub muted">النهاردة أو متأخرة</div></div>
       <div class="kpi" style="cursor:pointer" onclick="applyQuick('today')"><div class="lbl">النهاردة بس ›</div><div class="val num" style="color:${dueToday?'var(--clay)':'var(--ink)'}">${dueToday}</div><div class="sub muted">مواعيد اليوم</div></div>
@@ -889,9 +885,9 @@
     }
 
     const owners=[...new Set(leads.map(l=>l.owner).filter(Boolean))];
-    $("#ownerPerf").innerHTML=owners.length?`<table class="perf"><thead><tr><th>المسؤول</th><th>العملاء</th><th>مكسوب</th><th>تحويل</th><th>قيمة نشطة</th></tr></thead><tbody>`+
+    $("#ownerPerf").innerHTML=owners.length?`<table class="perf"><thead><tr><th>المسؤول</th><th>العملاء</th><th>مكسوب</th><th>تحويل</th>${canSeeValue()?"<th>قيمة نشطة</th>":""}</tr></thead><tbody>`+
       owners.map(o=>{const m=leads.filter(l=>l.owner===o),w=m.filter(l=>l.status==="won").length,cl=m.filter(l=>l.status==="won"||l.status==="lost").length;
-        return `<tr><td style="font-weight:600">${esc(o)}</td><td class="num">${m.length}</td><td class="num" style="color:var(--sage)">${w}</td><td class="num">${cl?Math.round(w/cl*100):0}%</td><td class="num" style="font-size:12px">${totalsByCurrency(l=>l.owner===o&&isActive(l))}</td></tr>`;}).join("")+`</tbody></table>`
+        return `<tr><td style="font-weight:600">${esc(o)}</td><td class="num">${m.length}</td><td class="num" style="color:var(--sage)">${w}</td><td class="num">${cl?Math.round(w/cl*100):0}%</td>${canSeeValue()?`<td class="num" style="font-size:12px">${totalsByCurrency(l=>l.owner===o&&isActive(l))}</td>`:""}</tr>`;}).join("")+`</tbody></table>`
       :'<p class="muted" style="padding:12px 0">لسه مفيش عملاء.</p>';
   }
 
@@ -1344,12 +1340,12 @@
         <div class="kpi"><div class="lbl">تحويل</div><div class="val num">${cr}%</div></div>
         ${avgDays!==null?`<div class="kpi"><div class="lbl">متوسط مدة التسعير</div><div class="val num">${avgDays}<small> يوم</small></div></div>`:""}
       </div>
-      <div class="report-block"><h3>قيمة الأعمال</h3><table class="perf"><tbody>
+      ${canSeeValue()?`<div class="report-block"><h3>قيمة الأعمال</h3><table class="perf"><tbody>
         <tr><td>Pipeline نشط</td><td class="num" style="text-align:left;font-weight:600">${totals(l=>isActive(l))}</td></tr>
         <tr><td>مكسوب</td><td class="num" style="text-align:left;font-weight:600;color:var(--sage)">${totals(l=>l.status==='won')}</td></tr>
-        <tr><td>عرض سعر / تفاوض</td><td class="num" style="text-align:left;font-weight:600">${totals(l=>l.status==='quoted'||l.status==='negotiation')}</td></tr></tbody></table></div>
-      <div class="report-block"><h3>حسب الحالة</h3><table class="perf"><thead><tr><th>الحالة</th><th>العدد</th><th>القيمة</th></tr></thead><tbody>
-        ${STATUSES.map(s=>{const c=scope.filter(l=>l.status===s.k).length;return c?`<tr><td><span class="chip" style="background:${s.c}1A;color:${s.c}">${s.t}</span></td><td class="num">${c}</td><td class="num" style="font-size:12px">${totals(l=>l.status===s.k)}</td></tr>`:"";}).join("")}</tbody></table></div>
+        <tr><td>عرض سعر / تفاوض</td><td class="num" style="text-align:left;font-weight:600">${totals(l=>l.status==='quoted'||l.status==='negotiation')}</td></tr></tbody></table></div>`:""}
+      <div class="report-block"><h3>حسب الحالة</h3><table class="perf"><thead><tr><th>الحالة</th><th>العدد</th>${canSeeValue()?"<th>القيمة</th>":""}</tr></thead><tbody>
+        ${STATUSES.map(s=>{const c=scope.filter(l=>l.status===s.k).length;return c?`<tr><td><span class="chip" style="background:${s.c}1A;color:${s.c}">${s.t}</span></td><td class="num">${c}</td>${canSeeValue()?`<td class="num" style="font-size:12px">${totals(l=>l.status===s.k)}</td>`:""}</tr>`:"";}).join("")}</tbody></table></div>
       ${Object.keys(qualMap).length?`<div class="report-block"><h3>جودة الـ Leads (تقييم تسويقي)</h3><table class="perf"><tbody>${Object.entries(qualMap).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
       ${Object.keys(lostMap).length?`<div class="report-block"><h3>أسباب الخسارة</h3><table class="perf"><tbody>${Object.entries(lostMap).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
       ${Object.keys(cancelMap).length?`<div class="report-block"><h3>أسباب الإلغاء</h3><table class="perf"><tbody>${Object.entries(cancelMap).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
