@@ -335,6 +335,16 @@
       <select class="filter" id="ownerFilter"></select>
       <select class="filter" id="sourceFilter"></select>
     </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--ink-soft)">
+        <input type="checkbox" id="hideTerminalCheck" style="width:auto;margin:0" checked>
+        إخفاء الإلغاء والخسارة
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:var(--sage)">
+        <input type="checkbox" id="lookalikeCheck" style="width:auto;margin:0">
+        🎯 المهتمين والمحتملين (Look-alike)
+      </label>
+    </div>
     <div id="quickChip" style="display:none;margin-bottom:12px"></div>
     <div class="lead-list" id="leadList"></div>
   </section>
@@ -899,6 +909,21 @@
     $$('.view').forEach(v=>v.classList.remove("active"));$("#tab-leads").classList.add("active");window.scrollTo(0,0);
     renderLeads();
   };
+  window.goFilterStatus=function(statusKey){
+    // switch to leads tab
+    $$('nav.tabs button').forEach(x=>x.classList.remove("active"));
+    document.querySelector('nav.tabs button[data-tab="leads"]')?.classList.add("active");
+    $$('.view').forEach(v=>v.classList.remove("active"));
+    $("#tab-leads")?.classList.add("active");
+    window.scrollTo(0,0);
+    // set status filter
+    const sf=$("#statusFilter"); if(sf){sf.value=statusKey;}
+    // uncheck hide terminal if selecting terminal status
+    if(TERMINAL.includes(statusKey)){
+      const htc=document.getElementById("hideTerminalCheck");if(htc)htc.checked=false;
+    }
+    renderLeads();
+  };
   function quickLabel(f){
     if(f==="active")return"الـ Pipeline النشطة";if(f==="won")return"مكسوب";if(f==="due")return"متابعات مستحقة/متأخرة";
     if(f==="today")return"متابعات النهاردة بس";
@@ -918,12 +943,19 @@
   function renderLeads(){
     const q=$("#searchInput").value.trim().toLowerCase();
     const sf=$("#statusFilter").value, of=$("#ownerFilter").value, srcf=$("#sourceFilter").value, qf=$("#qualityFilter").value;
+    const hideTerminal=document.getElementById("hideTerminalCheck")?.checked;
+    const lookalike=document.getElementById("lookalikeCheck")?.checked;
+    const LOOKALIKE_POOL=["interested","site_visit","won"]; // حالات مفيدة للـ look-alike
     // chip
     const chip=$("#quickChip");
     if(quickFilter){chip.style.display="block";chip.innerHTML=`<span class="chip" style="background:var(--clay);color:#fff;font-size:13px;padding:7px 12px;cursor:pointer" onclick="applyQuick(null)">✕ ${quickLabel(quickFilter)}</span>`;}
     else chip.style.display="none";
     let list=leads.filter(l=>{
       if(!passQuick(l))return false;
+      // hide terminal (cancelled/lost) unless specifically filtered
+      if(hideTerminal&&!sf&&TERMINAL.includes(l.status)&&l.status!=="won")return false;
+      // lookalike pool
+      if(lookalike&&!LOOKALIKE_POOL.includes(l.status))return false;
       if(sf&&l.status!==sf)return false; if(of&&l.owner!==of)return false; if(srcf&&l.source!==srcf)return false;
       if(qf&&(l.quality||"")!==qf)return false;
       if(q&&!((l.name||"").toLowerCase().includes(q)||(l.phone||"").includes(q)||(l.compound||"").toLowerCase().includes(q)))return false;
@@ -1345,7 +1377,7 @@
         <tr><td>مكسوب</td><td class="num" style="text-align:left;font-weight:600;color:var(--sage)">${totals(l=>l.status==='won')}</td></tr>
         <tr><td>عرض سعر / تفاوض</td><td class="num" style="text-align:left;font-weight:600">${totals(l=>l.status==='quoted'||l.status==='negotiation')}</td></tr></tbody></table></div>`:""}
       <div class="report-block"><h3>حسب الحالة</h3><table class="perf"><thead><tr><th>الحالة</th><th>العدد</th>${canSeeValue()?"<th>القيمة</th>":""}</tr></thead><tbody>
-        ${STATUSES.map(s=>{const c=scope.filter(l=>l.status===s.k).length;return c?`<tr><td><span class="chip" style="background:${s.c}1A;color:${s.c}">${s.t}</span></td><td class="num">${c}</td>${canSeeValue()?`<td class="num" style="font-size:12px">${totals(l=>l.status===s.k)}</td>`:""}</tr>`:"";}).join("")}</tbody></table></div>
+        ${STATUSES.map(s=>{const c=scope.filter(l=>l.status===s.k).length;return c?`<tr style="cursor:pointer" onclick="goFilterStatus('${s.k}')" title="اضغط لعرض العملاء"><td><span class="chip" style="background:${s.c}1A;color:${s.c}">${s.t}</span></td><td class="num">${c} ›</td>${canSeeValue()?`<td class="num" style="font-size:12px">${totals(l=>l.status===s.k)}</td>`:""}</tr>`:"";}).join("")}</tbody></table><div style="font-size:11.5px;color:var(--ink-soft);margin-top:6px">اضغط على أي حالة للانتقال لقائمة العملاء بهذا الفلتر</div></div>
       ${Object.keys(qualMap).length?`<div class="report-block"><h3>جودة الـ Leads (تقييم تسويقي)</h3><table class="perf"><tbody>${Object.entries(qualMap).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
       ${Object.keys(lostMap).length?`<div class="report-block"><h3>أسباب الخسارة</h3><table class="perf"><tbody>${Object.entries(lostMap).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
       ${Object.keys(cancelMap).length?`<div class="report-block"><h3>أسباب الإلغاء</h3><table class="perf"><tbody>${Object.entries(cancelMap).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<tr><td>${esc(n)}</td><td class="num" style="text-align:left;font-weight:600">${c}</td></tr>`).join("")}</tbody></table></div>`:""}
@@ -1514,6 +1546,15 @@
   $$('nav.tabs button').forEach(b=>b.onclick=()=>{$$('nav.tabs button').forEach(x=>x.classList.remove("active"));b.classList.add("active");$$('.view').forEach(v=>v.classList.remove("active"));$("#tab-"+b.dataset.tab).classList.add("active");window.scrollTo(0,0);});
   $("#addFab").onclick=()=>openForm();
   $("#searchInput").oninput=renderLeads;$("#statusFilter").onchange=renderLeads;$("#ownerFilter").onchange=renderLeads;$("#sourceFilter").onchange=renderLeads;$("#qualityFilter").onchange=renderLeads;
+  document.getElementById("hideTerminalCheck")?.addEventListener("change",renderLeads);
+  document.getElementById("lookalikeCheck")?.addEventListener("change",e=>{
+    // lookalike: uncheck hideTerminal to show won, and clear status filter
+    if(e.target.checked){
+      const htc=document.getElementById("hideTerminalCheck");if(htc)htc.checked=false;
+      const sf=$("#statusFilter");if(sf)sf.value="";
+    }
+    renderLeads();
+  });
   $$('[data-close]').forEach(b=>b.onclick=closeAll);$$('[data-close-detail]').forEach(b=>b.onclick=()=>$("#detailOverlay").classList.remove("show"));$$('[data-close-import]').forEach(b=>b.onclick=()=>$("#importOverlay").classList.remove("show"));
   $$('.overlay').forEach(o=>o.onclick=e=>{if(e.target===o)o.classList.remove("show");});
   // ESC key: close topmost open overlay
